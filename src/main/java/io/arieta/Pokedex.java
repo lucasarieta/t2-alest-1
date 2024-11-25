@@ -1,12 +1,15 @@
 package io.arieta;
-import java.util.*;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
 
 public class Pokedex {
     private Node root = null;
     private final ArrayList<Pokemon> pokemonsSortedByCP = new ArrayList<>();
     private final Map<String, ArrayList<Pokemon>> listByType = new HashMap<>();
-    private final Map<String, TreeMap<Integer, ArrayList<Pokemon>>> typeAndMinLevel = new HashMap<>();
-
+    
     /*
         Adiciona um novo node (pokemon) na árvore
     */
@@ -20,65 +23,86 @@ public class Pokedex {
         Remove um novo node (pokemon) da árvore
     */
     boolean remove(Integer id) {
-        root = removeAux(root, id);
-        return root != null;
-    }
+        Node node = searchNode(id);
 
-    private Node removeAux(Node current, Integer id) {
-        if (current == null) return null;
+        pokemonsSortedByCP.remove(node.pokemon);
 
-        if (id < current.pokemon.getId()) {
-            current.left = removeAux(current.left, id);
-        } else if (id > current.pokemon.getId()) {
-            current.right = removeAux(current.right, id);
+        int amountOfTypes = node.pokemon.getTypes().size();
+        for(int i=0; i < amountOfTypes; i++){
+            listByType.get(node.pokemon.getTypes().get(i)).remove(node.pokemon);
+        }
+            
+        Node current = searchNode(id);
+        if (current == null) return false;
+
+        /*
+            Node é uma folha (leaf)
+        */
+        if (current.left == null && current.right == null) {
+            if (current.parent == null) {
+                root = null;
+            } else {
+                if (current.parent.left == current) {
+                    current.parent.left = null;
+                } else {
+                    current.parent.right = null;
+                }
+            }
+            /* O node tem um filho */
+        } else if (current.left == null || current.right == null) {
+            Node child;
+            child = Objects.requireNonNullElseGet(current.left, () -> current.right);
+
+            if (current.parent == null) {
+                root = child;
+            } else if (current.parent.left == current) {
+                current.parent.left = child;
+            } else {
+                current.parent.right = child;
+            }
+
+            child.parent = current.parent;
+            /* node tem dois filhos */
         } else {
-            /*
-                Caso 1: Nó sem filhos
-             */
-            if (current.left == null && current.right == null) {
-                return null;
+            Node prev = current.left;
+            while (prev.right != null) {
+                prev = prev.right;
             }
 
-            /*
-                Nó com um filho
-             */
+            current.pokemon = prev.pokemon;
 
-            if (current.left == null) {
-                Node temp = current.right;
-                temp.parent = current.parent;
-                return temp;
+            if (current.left == prev) {
+                if (prev.left != null) {
+                    prev.left.parent = current;
+                    current.left = prev.left;
+                } else {
+                    prev.parent = null;
+                    current.left = null;
+                }
+            } else {
+                if (prev.left != null) {
+                    prev.left.parent = prev.parent;
+                    prev.parent.left = prev.left;
+                } else {
+                    prev.parent.right = null;
+                }
             }
-
-            if (current.right == null) {
-                Node temp = current.left;
-                temp.parent = current.parent;
-                return temp;
-            }
-            /*
-                Caso 3: Nó com dois
-             */
-            Node successor = getMax(current.left);
-            current.pokemon = successor.pokemon;
-            current.left = removeAux(current.left, successor.pokemon.getId());
         }
 
-        current.height = 1 + Math.max(getHeight(current.left), getHeight(current.right));
-        return balance(current);
-    }
-
-    private Node getMax(Node node) {
-        while (node.right != null) {
-            node = node.right;
+        Node father = current.parent;
+        while (father != null) {
+            father = balance(father);
+            father = father.parent;
         }
-        return node;
+
+        return true;
     }
 
     /*
         Pesquisa um node na árvore com base no id do pokemon
     */
-    String searchByPokedex(Integer id) {
-        Node node = searchNode(id);
-        return node != null ? node.pokemon.toString() : "Pokémon não encontrado";
+    String searchByPokedex(Integer id){
+        return searchNode(id).pokemon.toString();
     }
 
     /*
@@ -91,27 +115,18 @@ public class Pokedex {
     }
 
     /*
-        Lista todos os pokemons de um determinado tipo e nível mínimo
+        Lista todos os pokemons de um determinado tipo
     */
     void listByTypeAndLevel(String type, Integer levelMin){
-        if (!typeAndMinLevel.containsKey(type)) {
+        if (!listByType.containsKey(type)) {
             System.out.println("Tipo não encontrado");
             return;
         }
 
-        System.out.println("Listando Pokémon do tipo: " + type + " com nível mínimo de: " + levelMin);
-
-        TreeMap<Integer, ArrayList<Pokemon>> levelMap = typeAndMinLevel.get(type);
-        Map.Entry<Integer, ArrayList<Pokemon>> entry = levelMap.ceilingEntry(levelMin);
-
-        if (entry != null) {
-            levelMap.tailMap(entry.getKey()).forEach((keyLevel, pokemons) -> {
-                for (Pokemon p : pokemons) {
-                    System.out.println(p.toString());
-                }
-            });
-        } else {
-            System.out.println("Nenhum Pokémon encontrado com o nível mínimo especificado.");
+        for (Pokemon p : listByType.get(type)) {
+            if (p.getLevel() >= levelMin) {
+                System.out.println(p.toString());
+            }
         }
     }
 
@@ -122,6 +137,11 @@ public class Pokedex {
         if (current == null) {
             Node newNode = new Node(pokemon);
             newNode.parent = parent;
+
+            if (root == null) {
+                root = newNode;
+            }
+
             return newNode;
         }
 
@@ -132,9 +152,46 @@ public class Pokedex {
         } else {
             return current;
         }
-
+        
         current.height = 1 + Math.max(getHeight(current.left), getHeight(current.right));
-        return balance(current);
+
+        int balance = getBalance(current);
+
+        /*
+            Se o balanceamento do node for maior que 1 e o balanceamento do filho à esquerda for 1
+            a rotação simples à direita é realizada
+        */
+        if (balance > 1 && current.left != null && getBalance(current.left) == 1) {
+            return rotateRight(current);
+        }
+
+        /*
+            Se o balanceamento do node for menor que -1 e o balanceamento do filho à direita for -1
+            a rotação simples à esquerda é realizada
+        */
+        if (balance < -1 && current.right != null && getBalance(current.right) == -1) {
+            return rotateLeft(current);
+        }
+
+        /*
+            Se o balanceamento do node for maior que 1 e o balanceamento do filho à esquerda for -1
+            a rotação dupla esquerda-direita é realizada
+        */
+        if (balance > 1 && current.left != null && getBalance(current.left) == -1) {
+            current.left = rotateLeft(current.left);
+            return rotateRight(current);
+        }
+
+        /*
+            Se o balanceamento do node for menor que -1 e o balanceamento do filho à direita for 1
+            a rotação dupla direita-esquerda é realizada
+        */
+        if (balance < -1 && current.right != null && getBalance(current.right) == 1) {
+            current.right = rotateRight(current.right);
+            return rotateLeft(current);
+        }
+
+        return current;
     }
 
     /*
@@ -146,27 +203,24 @@ public class Pokedex {
             return;
         }
 
-        for (int i = 0; i < this.pokemonsSortedByCP.size(); i++) {
-            if (this.pokemonsSortedByCP.get(i).getCombatPoints() < pokemon.getCombatPoints()) {
-                this.pokemonsSortedByCP.add(i, pokemon);
+        for(Pokemon p : this.pokemonsSortedByCP){
+            if(p.getCombatPoints() < pokemon.getCombatPoints()){
+                this.pokemonsSortedByCP.add(this.pokemonsSortedByCP.indexOf(p), pokemon);
                 return;
             }
         }
 
-        this.pokemonsSortedByCP.add(pokemon);
+        this.pokemonsSortedByCP.addFirst(pokemon);
     }
 
     /*
-        Adiciona um pokemon na lista de pokemons ordenados por tipo e nível
+        Adiciona um pokemon na lista de pokemons ordenados por tipo
     */
     void addByType(Pokemon pokemon){
-        for (String type : pokemon.getTypes()) {
-            typeAndMinLevel.putIfAbsent(type, new TreeMap<>());
+        for(String type : pokemon.getTypes()){
+            if (!listByType.containsKey(type)) listByType.put(type, new ArrayList<>());
 
-            int levelMin = pokemon.getLevel();
-            TreeMap<Integer, ArrayList<Pokemon>> levelMap = typeAndMinLevel.get(type);
-            levelMap.putIfAbsent(levelMin, new ArrayList<>());
-            levelMap.get(levelMin).add(pokemon);
+            listByType.get(type).add(pokemon);
         }
     }
 
@@ -190,7 +244,7 @@ public class Pokedex {
         Método auxiliar para pesquisar um node na árvore
     */
     private Node searchNodeAux(Integer id, Node current) {
-        if (current == null) throw new IllegalArgumentException("Falha ao encontrar Pokémon");
+        if (current == null) throw new IllegalArgumentException("Falha ao encontrar pokemon");
         if (current.pokemon.getId() > id) return searchNodeAux(id, current.left);
         if (current.pokemon.getId() < id) return searchNodeAux(id, current.right);
 
@@ -216,7 +270,7 @@ public class Pokedex {
     */
     private Node balance(Node node) {
         int _balance = getBalance(node);
-
+    
         /*
             Desbalanceado a esquerda
         */
@@ -248,7 +302,7 @@ public class Pokedex {
     private Node rotateRight(Node three) {
         Node two = three.left;
         Node one = two.right;
-
+    
         two.right = three;
         three.left = one;
 
@@ -281,15 +335,21 @@ public class Pokedex {
             } else {
                 three.parent.right = two;
             }
+        } else {
+            root = two;
         }
 
         three.parent = two;
+        three.height = Math.max(getHeight(three.left), getHeight(three.right)) + 1;
+        two.height = Math.max(getHeight(two.left), getHeight(two.right)) + 1;
+
         return two;
     }
 
+
     /*
-      Gera uma saida DOT, pode ser visualizado em
-      http://www.webgraphviz.com/
+        Gera uma saida DOT, pode ser visualizado em
+        http://www.webgraphviz.com/
     */
     private void generateDOTConnection(Node node) {
         if (node == null) return;
