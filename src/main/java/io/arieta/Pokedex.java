@@ -1,14 +1,11 @@
 package io.arieta;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 public class Pokedex {
     private Node root = null;
     private final ArrayList<Pokemon> pokemonsSortedByCP = new ArrayList<>();
-    private final Map<String, ArrayList<Pokemon>> listByType = new HashMap<>();
+    private final Map<String, TreeMap<Integer, ArrayList<Pokemon>>> typeAndLevelIndex = new HashMap<>();
     
     /*
         Adiciona um novo node (pokemon) na árvore
@@ -25,12 +22,9 @@ public class Pokedex {
     boolean remove(Integer id) {
         Node node = searchNode(id);
 
-        pokemonsSortedByCP.remove(node.pokemon);
-
-        int amountOfTypes = node.pokemon.getTypes().size();
-        for(int i=0; i < amountOfTypes; i++){
-            listByType.get(node.pokemon.getTypes().get(i)).remove(node.pokemon);
-        }
+        Pokemon pokemon = node.pokemon;
+        pokemonsSortedByCP.remove(pokemon);
+        removeFromType(pokemon);
             
         Node current = searchNode(id);
         if (current == null) return false;
@@ -118,14 +112,15 @@ public class Pokedex {
         Lista todos os pokemons de um determinado tipo
     */
     void listByTypeAndLevel(String type, Integer levelMin){
-        if (!listByType.containsKey(type)) {
+        if (!typeAndLevelIndex.containsKey(type)) {
             System.out.println("Tipo não encontrado");
             return;
         }
 
-        for (Pokemon p : listByType.get(type)) {
-            if (p.getLevel() >= levelMin) {
-                System.out.println(p.toString());
+        TreeMap<Integer, ArrayList<Pokemon>> levelMap = typeAndLevelIndex.get(type);
+        for (Map.Entry<Integer, ArrayList<Pokemon>> entry : levelMap.tailMap(levelMin).entrySet()) {
+            for (Pokemon pokemon : entry.getValue()) {
+                System.out.println(pokemon.toString());
             }
         }
     }
@@ -217,10 +212,34 @@ public class Pokedex {
         Adiciona um pokemon na lista de pokemons ordenados por tipo
     */
     void addByType(Pokemon pokemon){
-        for(String type : pokemon.getTypes()){
-            if (!listByType.containsKey(type)) listByType.put(type, new ArrayList<>());
+        for (String type : pokemon.getTypes()) {
+            typeAndLevelIndex.putIfAbsent(type, new TreeMap<>());
+            TreeMap<Integer, ArrayList<Pokemon>> levelMap = typeAndLevelIndex.get(type);
 
-            listByType.get(type).add(pokemon);
+            levelMap.putIfAbsent(pokemon.getLevel(), new ArrayList<>());
+            levelMap.get(pokemon.getLevel()).add(pokemon);
+        }
+    }
+
+    /*
+        Remove um Pokémon da estrutura de índice por tipo e nível
+    */
+    void removeFromType(Pokemon pokemon) {
+        for (String type : pokemon.getTypes()) {
+            TreeMap<Integer, ArrayList<Pokemon>> levelMap = typeAndLevelIndex.get(type);
+            if (levelMap != null) {
+                ArrayList<Pokemon> levelList = levelMap.get(pokemon.getLevel());
+                if (levelList != null) {
+                    levelList.remove(pokemon);
+                    if (levelList.isEmpty()) {
+                        levelMap.remove(pokemon.getLevel());
+                    }
+                }
+
+                if (levelMap.isEmpty()) {
+                    typeAndLevelIndex.remove(type);
+                }
+            }
         }
     }
 
